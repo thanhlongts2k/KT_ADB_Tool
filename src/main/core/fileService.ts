@@ -24,7 +24,7 @@ function assertSafeRemotePath(remotePath: string, allowRoot = true) {
 export async function listDirectoryShell(deviceId: string, remotePath: string) {
   try {
     const output = await execAdb(deviceId, `ls -al ${shellQuote(remotePath)}`);
-    const lines = output.split(/\r?\n/);
+    const lines = (output || "").split(/\r?\n/);
     const result: any[] = [];
 
     for (const line of lines) {
@@ -91,9 +91,10 @@ export async function listDirectoryShell(deviceId: string, remotePath: string) {
 }
 
 export async function listDirectory(deviceId: string, remotePath: string) {
+  if (!deviceId) throw new Error("Device ID is required");
+  assertSafeRemotePath(remotePath);
+
   try {
-    if (!deviceId) throw new Error("Device ID is required");
-    assertSafeRemotePath(remotePath);
 
     const isAndroidStorageSilo =
       remotePath.includes("/Android/data") ||
@@ -169,20 +170,37 @@ export async function deleteFile(deviceId: string, remotePath: string): Promise<
           stream.on("end", () => {
             if (output.trim() && /permission denied|read-only/i.test(output)) {
               // Thử lại với su nếu máy đã root
-              adbState.client
-                .shell(deviceId, `su -c "rm -rf ${shellQuote(remotePath)}"`)
-                .then((suStream: any) => {
-                  suStream.on("data", () => {});
-                  suStream.on("end", () => resolve(true));
-                  suStream.on("error", () => resolve(false));
-                })
-                .catch(() => resolve(false));
+              try {
+                const suPromise = adbState.client?.shell(deviceId, `su -c "rm -rf ${shellQuote(remotePath)}"`);
+                if (suPromise && typeof suPromise.then === "function") {
+                  suPromise
+                    .then((suStream: any) => {
+                      suStream?.on?.("data", () => {});
+                      suStream?.on?.("end", () => resolve(true));
+                      suStream?.on?.("error", () => resolve(false));
+                    })
+                    .catch(() => resolve(false));
+                } else {
+                  resolve(false);
+                }
+              } catch {
+                resolve(false);
+              }
             } else {
               // Cập nhật lại media scanner để Android xóa cache ảnh/video
-              adbState.client
-                .shell(deviceId, `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://${shellQuote(remotePath)}"`)
-                .then((s: any) => s.on("data", () => {}))
-                .catch(() => {});
+              try {
+                const scanPromise = adbState.client?.shell(
+                  deviceId,
+                  `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://${shellQuote(remotePath)}"`,
+                );
+                if (scanPromise && typeof scanPromise.then === "function") {
+                  scanPromise
+                    .then((s: any) => s?.on?.("data", () => {}))
+                    .catch(() => {});
+                }
+              } catch {
+                // Ignore media scanner scan trigger error
+              }
               resolve(true);
             }
           });

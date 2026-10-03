@@ -5,7 +5,7 @@ import {
   deleteFile,
   renameFile,
 } from "../../src/main/core/fileService";
-import { adbState } from "../../src/main/core/adbCore";
+import { adbState, execAdb } from "../../src/main/core/adbCore";
 import { Readable } from "stream";
 
 vi.mock("../../src/main/core/adbCore", () => {
@@ -29,6 +29,10 @@ function createMockStream() {
 describe("fileService", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(adbState.client.shell).mockImplementation(() =>
+      Promise.resolve(createMockStream() as any),
+    );
+    vi.mocked(execAdb).mockResolvedValue("");
   });
 
   describe("listDirectory", () => {
